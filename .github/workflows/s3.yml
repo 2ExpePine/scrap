@@ -1,4 +1,4 @@
-name: TradingView Scraper Group 4 (Shards 15–19)
+name: TradingView Scraper Group 3 (Shards 10–14)
 
 on:
   workflow_dispatch:
@@ -9,7 +9,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [15,16,17,18,19]
+        shard: [10,11,12,13,14]
     env:
       SHARD_STEP: 20
     steps:
@@ -30,11 +30,11 @@ jobs:
 
       - name: ⚙️ Create Checkpoint File
         run: |
-          FILE="checkpoint_group4_${{ matrix.shard }}.txt"
+          FILE="checkpoint_group3_${{ matrix.shard }}.txt"
           if [ ! -f "$FILE" ]; then echo "1" > "$FILE"; fi
 
       - name: 🚀 Run Scraper
         env:
           SHARD_INDEX: ${{ matrix.shard }}
-          CHECKPOINT_FILE: checkpoint_group4_${{ matrix.shard }}.txt
+          CHECKPOINT_FILE: checkpoint_group3_${{ matrix.shard }}.txt
         run: python run_scraper.py
