@@ -1,7 +1,12 @@
-name: TradingView Scraper Group 3 (Shards 10–14)
+name: S3 Scraper
 
 on:
-  workflow_dispatch:
+  workflow_call:
+    inputs:
+      SHARD_STEP:
+        required: false
+        type: number
+        default: 20
 
 jobs:
   scrape:
@@ -11,7 +16,7 @@ jobs:
       matrix:
         shard: [10, 11, 12, 13, 14]
     env:
-      SHARD_STEP: 20
+      SHARD_STEP: ${{ inputs.SHARD_STEP }}
     steps:
       - name: ⬇️ Checkout Repository
         uses: actions/checkout@v4
@@ -39,11 +44,11 @@ jobs:
 
       - name: ⚙️ Create Checkpoint File
         run: |
-          FILE="checkpoint_group3_${{ matrix.shard }}.txt"
+          FILE="checkpoint_s3_${{ matrix.shard }}.txt"
           if [ ! -f "$FILE" ]; then echo "1" > "$FILE"; fi
 
       - name: 🚀 Run Scraper
         env:
           SHARD_INDEX: ${{ matrix.shard }}
-          CHECKPOINT_FILE: checkpoint_group3_${{ matrix.shard }}.txt
+          CHECKPOINT_FILE: checkpoint_s3_${{ matrix.shard }}.txt
         run: python run_scraper.py
