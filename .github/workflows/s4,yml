@@ -1,0 +1,40 @@
+name: TradingView Scraper Group 4 (Shards 15–19)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [15,16,17,18,19]
+    env:
+      SHARD_STEP: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - run: |
+          pip install selenium beautifulsoup4 gspread webdriver-manager
+
+      - name: 🔑 Set up Google Credentials
+        run: echo '${{ secrets.GSPREAD_CREDENTIALS }}' > credentials.json
+
+      - name: 🍪 Set up TradingView Cookies
+        run: echo '${{ secrets.TRADINGVIEW_COOKIES }}' > cookies.json
+
+      - name: ⚙️ Create Checkpoint File
+        run: |
+          FILE="checkpoint_group4_${{ matrix.shard }}.txt"
+          if [ ! -f "$FILE" ]; then echo "1" > "$FILE"; fi
+
+      - name: 🚀 Run Scraper
+        env:
+          SHARD_INDEX: ${{ matrix.shard }}
+          CHECKPOINT_FILE: checkpoint_group4_${{ matrix.shard }}.txt
+        run: python run_scraper.py
