@@ -1,92 +1,32 @@
-name: 🔄 Master Timed Scraper Batch 
+name: Master TradingView Scraper
 
 on:
   workflow_dispatch:
-    inputs:
-      reason:
-        description: 'Reason for dispatching the orchestrator'
-        required: false
-        default: 'Timed sequential run'
-
-# Permissions are essential for dispatching other workflows
-permissions:
-  actions: write 
-  contents: read
 
 jobs:
-  trigger_workflows:
+  run_s1:
+    name: Run S1
+    uses: ./.github/workflows/s1.yml
+
+  wait_before_next:
+    name: Wait Before Next Scrapers
     runs-on: ubuntu-latest
+    needs: run_s1
     steps:
-      - name: ⬇️ Checkout Repository
-        uses: actions/checkout@v4
+      - name: ⏳ Wait 10 minutes
+        run: sleep 600  # 10 minutes delay
 
-      # -----------------------------------------------------------------
-      # --- STEP 1: Simultaneously Trigger Batch 1 and Batch 2 ---
-      - name: 🚀 Trigger Batch 1 and Batch 2 (Concurrent Group 1)
-        uses: actions/github-script@v6
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const dispatch = async (workflowFile) => {
-              console.log(`Dispatching workflow: ${workflowFile}`);
-              await github.rest.actions.createWorkflowDispatch({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                workflow_id: workflowFile,
-                ref: context.ref,
-                inputs: {} 
-              });
-              console.log(`Successfully dispatched ${workflowFile}`);
-            };
+  run_s2:
+    name: Run S2
+    uses: ./.github/workflows/s2.yml
+    needs: wait_before_next
 
-            // Trigger scraper_batch1.yml simultaneously
-            dispatch('s1.yml'); 
-            
-            // Trigger scraper_batch2.yml simultaneously
-            dispatch('s2.yml'); 
-            // Note: The lack of 'await' between dispatches makes them run concurrently.
+  run_s3:
+    name: Run S3
+    uses: ./.github/workflows/s3.yml
+    needs: run_s2
 
-
-      # -----------------------------------------------------------------
-      # --- STEP 2: Wait 12 Minutes ---
-      - name: ⏳ Wait for 12 minutes (Before Group 2)
-        uses: actions/github-script@v6
-        with:
-          script: |
-            // Delay for 12 minutes (12 * 60 * 1000 milliseconds)
-            const delay = 12 * 60 * 1000; 
-            console.log(`Waiting for ${delay / 1000 / 60} minutes...`);
-            await new Promise(resolve => setTimeout(resolve, delay));
-            console.log('Wait complete, proceeding to Batch 3 and 4.');
-
-
-      # -----------------------------------------------------------------
-      # --- STEP 3: Simultaneously Trigger Batch 3 and Batch 4 ---
-      - name: 🚀 Trigger Batch 3 and Batch 4 (Concurrent Group 2)
-        uses: actions/github-script@v6
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const dispatch = async (workflowFile) => {
-              console.log(`Dispatching workflow: ${workflowFile}`);
-              await github.rest.actions.createWorkflowDispatch({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                workflow_id: workflowFile,
-                ref: context.ref,
-                inputs: {}
-              });
-              console.log(`Successfully dispatched ${workflowFile}`);
-            };
-
-            // Trigger scraper_batch3.yml simultaneously
-            dispatch('s3.yml'); 
-            
-            // Trigger scraper_batch4.yml simultaneously
-            dispatch('s4.yml'); 
-
-
-      # -----------------------------------------------------------------
-      # --- STEP 4: Optional cleanup step or simple completion log ---
-      - name: ✅ Orchestration Complete
-        run: echo "All scraper batches have been dispatched."
+  run_s4:
+    name: Run S4
+    uses: ./.github/workflows/s4.yml
+    needs: run_s3
