@@ -40,10 +40,10 @@ jobs:
             };
 
             // Trigger scraper_batch1.yml simultaneously
-            dispatch('scraper_batch1.yml'); 
+            dispatch('s1.yml'); 
             
             // Trigger scraper_batch2.yml simultaneously
-            dispatch('scraper_batch2.yml'); 
+            dispatch('s2.yml'); 
             // Note: The lack of 'await' between dispatches makes them run concurrently.
 
 
@@ -80,10 +80,10 @@ jobs:
             };
 
             // Trigger scraper_batch3.yml simultaneously
-            dispatch('scraper_batch3.yml'); 
+            dispatch('s3.yml'); 
             
             // Trigger scraper_batch4.yml simultaneously
-            dispatch('scraper_batch4.yml'); 
+            dispatch('s4.yml'); 
 
 
       # -----------------------------------------------------------------
