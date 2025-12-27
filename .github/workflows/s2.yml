@@ -20,7 +20,9 @@ jobs:
           python-version: '3.10'
 
       - run: |
-          pip install selenium beautifulsoup4 gspread webdriver-manager
+         python -m pip install --upgrade pip
+         # Added pandas, requests, and openpyxl to your list
+         pip install selenium beautifulsoup4 gspread webdriver-manager pandas requests openpyxl
 
       - name: 🔑 Set up Google Credentials
         run: echo '${{ secrets.GSPREAD_CREDENTIALS }}' > credentials.json
