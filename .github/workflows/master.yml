@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  # Group 1 and 2 run at the same time
+  # --- START IMMEDIATELY ---
   run-group-1:
     uses: ./.github/workflows/group1.yml
     secrets: inherit
@@ -13,22 +13,26 @@ jobs:
     uses: ./.github/workflows/group2.yml
     secrets: inherit
 
-  # Group 3 starts 5 minutes after the Master starts
-  run-group-3:
+  # --- START AFTER 5 MINS ---
+  wait-5-mins:
     runs-on: ubuntu-latest
     steps:
-      - name: ⏳ Wait 5 Minutes
+      - name: ⏳ Sleeping
         run: sleep 300
-      - name: 🚀 Trigger Group 3
-        uses: ./.github/workflows/group3.yml
-        secrets: inherit
 
-  # Group 4 starts 10 minutes after the Master starts
-  run-group-4:
+  run-group-3:
+    needs: wait-5-mins
+    uses: ./.github/workflows/group3.yml
+    secrets: inherit
+
+  # --- START AFTER 10 MINS ---
+  wait-10-mins:
     runs-on: ubuntu-latest
     steps:
-      - name: ⏳ Wait 10 Minutes
+      - name: ⏳ Sleeping
         run: sleep 600
-      - name: 🚀 Trigger Group 4
-        uses: ./.github/workflows/group4.yml
-        secrets: inherit
+
+  run-group-4:
+    needs: wait-10-mins
+    uses: ./.github/workflows/group4.yml
+    secrets: inherit
