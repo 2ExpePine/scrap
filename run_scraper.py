@@ -19,18 +19,20 @@ from webdriver_manager.chrome import ChromeDriverManager
 # ---------------- SHARDING & SEQUENCE SETUP ---------------- #
 SHARD_INDEX = int(os.getenv("SHARD_INDEX", "0"))
 SHARD_STEP = int(os.getenv("SHARD_STEP", "1"))
-START_INDEX = int(os.getenv("START_INDEX", "0")) # Set to 0 to start from first row
+START_INDEX = int(os.getenv("START_INDEX", "0")) 
 END_INDEX = int(os.getenv("END_INDEX", "2500"))
-checkpoint_file = os.getenv("CHECKPOINT_FILE", "checkpoint_new_1.txt")
 
-# Read last successful index
+# IMPORTANT: Every shard MUST have its own checkpoint file name
+# Your YAMLs are already doing this by passing UNIQUE filenames
+checkpoint_file = os.getenv("CHECKPOINT_FILE", f"checkpoint_shard_{SHARD_INDEX}.txt")
+
 if os.path.exists(checkpoint_file):
     with open(checkpoint_file, "r") as f:
         last_i = int(f.read().strip())
 else:
     last_i = START_INDEX
 
-# ---------------- BROWSER SETUP ---------------- #
+# ---------------- BROWSER SETUP (UNCHANGED) ---------------- #
 chrome_options = Options()
 chrome_options.add_argument("--headless=new")
 chrome_options.add_argument("--disable-gpu")
@@ -38,42 +40,37 @@ chrome_options.add_argument("--no-sandbox")
 chrome_options.add_argument("--disable-dev-shm-usage")
 chrome_options.add_argument("--remote-debugging-port=9222")
 
-# ---------------- GOOGLE SHEETS AUTH ---------------- #
+# ---------------- GOOGLE SHEETS AUTH (UNCHANGED) ---------------- #
 try:
     gc = gspread.service_account("credentials.json")
 except Exception as e:
     print(f"Error loading credentials.json: {e}")
     exit(1)
 
-# Target sheet for WRITING
 sheet_data = gc.open('Tradingview Data Reel Experimental May').worksheet('Sheet5')
 
 # ---------------- READ STOCK LIST FROM GOOGLE SHEETS ---------------- #
-print("📥 Fetching stock list from Google Sheet: 'Stock List'...")
+print(f"📥 [Shard {SHARD_INDEX}] Fetching stock list...")
 
 try:
     list_workbook = gc.open('Stock List')
     list_sheet = list_workbook.worksheet('Sheet1')
-    
-    # Get all values (returns list of lists)
     all_rows = list_sheet.get_all_values()
     
-    # We keep the sequence by slicing from the header downwards
-    # Column A (0): Name | Column E (4): URL
+    # Slice from header downwards
     data_rows = all_rows[1:] 
     
-    # Create clean lists preserving the exact order of the sheet
     name_list = [row[0] if len(row) > 0 else "" for row in data_rows]
     company_list = [row[4] if len(row) > 4 else "" for row in data_rows]
 
-    print(f"✅ Loaded {len(company_list)} companies in sequence.")
+    print(f"✅ Loaded {len(company_list)} companies.")
 except Exception as e:
     print(f"❌ Error reading Google Sheet: {e}")
     exit(1)
 
 current_date = date.today().strftime("%m/%d/%Y")
 
-# ---------------- SCRAPER FUNCTION ---------------- #
+# ---------------- SCRAPER FUNCTION (UNCHANGED) ---------------- #
 def scrape_tradingview(company_url):
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     driver.set_window_size(1920, 1080)
@@ -107,31 +104,36 @@ def scrape_tradingview(company_url):
     finally:
         driver.quit()
 
-# ---------------- MAIN LOOP (SEQUENTIAL) ---------------- #
-# We enumerate starting from 0 to match our data_rows list index
+# ---------------- MAIN LOOP (FIXED FOR SEQUENTIAL SHARDING) ---------------- #
 for i in range(len(company_list)):
-    # 1. Skip if before our checkpoint or outside our range
-    if i < last_i or i > END_INDEX:
+    # 1. Sequence Bounds
+    if i < last_i:
         continue
+    if i > END_INDEX:
+        break
         
-    # 2. Handle Sharding (Parallel instances)
+    # 2. SHARDING LOGIC
+    # This ensures Shard 0 takes row 0, 20, 40...
+    # Shard 1 takes row 1, 21, 41...
+    # They stay in their own "lane" but always move forward in order.
     if i % SHARD_STEP != SHARD_INDEX:
         continue
 
     url = company_list[i]
     name = name_list[i]
 
-    # Skip empty rows
     if not url or not url.startswith("http"):
-        print(f"⏩ Index {i}: Skipping empty/invalid URL.")
+        print(f"⏩ Row {i}: Skipping empty/invalid URL.")
+        # Even if skipped, update checkpoint so we don't check this row again
+        with open(checkpoint_file, "w") as f:
+            f.write(str(i + 1))
         continue
 
-    print(f"🚀 Processing {i}: {name}")
+    print(f"🚀 [Shard {SHARD_INDEX}] Processing Row {i}: {name}")
 
     scraped_values = scrape_tradingview(url)
     
     if scraped_values:
-        # Construct row: [Name, Date, Val1, Val2...]
         row_to_upload = [name, current_date] + scraped_values
         try:
             sheet_data.append_row(row_to_upload, table_range='A1')
@@ -141,8 +143,8 @@ for i in range(len(company_list)):
     else:
         print(f"⚠️ No data found for {name}.")
 
-    # Update checkpoint after every attempted row
+    # 3. UPDATE CHECKPOINT (Unique per Shard)
     with open(checkpoint_file, "w") as f:
-        f.write(str(i + 1)) # Save i + 1 so it starts at the NEXT row on restart
+        f.write(str(i + 1)) 
 
     time.sleep(1)
