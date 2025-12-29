@@ -1,7 +1,7 @@
 name: TradingView Scraper Group 1 (Shards 0–4)
 on:
   workflow_dispatch:
-  workflow_call: # Required for Master run
+  workflow_call:
 
 jobs:
   scrape:
