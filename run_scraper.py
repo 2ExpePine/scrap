@@ -39,28 +39,34 @@ except Exception as e:
     print(f"Error loading credentials.json: {e}")
     exit(1)
 
+# Worksheet for WRITING data
 sheet_data = gc.open('Tradingview Data Reel Experimental May').worksheet('Sheet5')
 
-# ---------------- READ STOCK LIST FROM GITHUB EXCEL ---------------- #
-print("📥 Fetching stock list from GitHub Excel...")
+# ---------------- READ STOCK LIST FROM GOOGLE SHEETS ---------------- #
+print("📥 Fetching stock list from Google Sheet: 'Stock List'...")
 
 try:
-    EXCEL_URL = "https://raw.githubusercontent.com/Lavit-sharma/stock_raja/main/Stock%20List.xlsx"
-    response = requests.get(EXCEL_URL)
-    response.raise_for_status()
+    # Open the source Google Sheet
+    list_workbook = gc.open('Stock List')
+    list_sheet = list_workbook.worksheet('Sheet1')
+    
+    # Get all values from the sheet
+    all_rows = list_sheet.get_all_values()
+    
+    # Extract data (Skipping the header row)
+    # Column A (Index 0) - Name | Column E (Index 4) - URL
+    data_rows = all_rows[1:] 
+    name_list = [row[0] if len(row) > 0 else "" for row in data_rows]
+    company_list = [row[4] if len(row) > 4 else "" for row in data_rows]
 
-    df = pd.read_excel(BytesIO(response.content), engine="openpyxl")
-    name_list = df.iloc[:, 0].fillna("").tolist()   # Column A - Name
-    company_list = df.iloc[:, 4].fillna("").tolist()  # Column E - URL
-
-    print(f"✅ Loaded {len(company_list)} companies from GitHub Excel.")
+    print(f"✅ Loaded {len(company_list)} companies from Google Sheet.")
 except Exception as e:
-    print(f"❌ Error reading Excel from GitHub: {e}")
+    print(f"❌ Error reading Google Sheet: {e}")
     exit(1)
 
 current_date = date.today().strftime("%m/%d/%Y")
 
-# ---------------- SCRAPER FUNCTION ---------------- #
+# ---------------- SCRAPER FUNCTION (UNCHANGED) ---------------- #
 def scrape_tradingview(company_url):
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     driver.set_window_size(1920, 1080)
@@ -107,6 +113,11 @@ def scrape_tradingview(company_url):
 
 # ---------------- MAIN LOOP ---------------- #
 for i, company_url in enumerate(company_list[last_i:], last_i):
+    # Basic validation for empty URLs
+    if not company_url or not company_url.startswith("http"):
+        print(f"⏩ Skipping index {i}: Invalid or empty URL.")
+        continue
+
     if i < START_INDEX or i > END_INDEX:
         continue
     if i % SHARD_STEP != SHARD_INDEX:
