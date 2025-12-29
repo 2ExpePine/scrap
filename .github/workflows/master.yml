@@ -4,35 +4,36 @@ on:
   workflow_dispatch:
 
 jobs:
-  # --- START IMMEDIATELY ---
-  run-group-1:
-    uses: ./.github/workflows/group1.yml
+  # --- PHASE 1: START IMMEDIATELY ---
+  # Runs s1.yml and s2.yml at the same time
+  run-s1:
+    uses: ./.github/workflows/s1.yml
     secrets: inherit
 
-  run-group-2:
-    uses: ./.github/workflows/group2.yml
+  run-s2:
+    uses: ./.github/workflows/s2.yml
     secrets: inherit
 
-  # --- START AFTER 5 MINS ---
-  wait-5-mins:
+  # --- PHASE 2: WAIT 5 MINS THEN RUN S3 ---
+  wait-for-s3:
     runs-on: ubuntu-latest
     steps:
-      - name: ⏳ Sleeping
+      - name: ⏳ Waiting 5 minutes
         run: sleep 300
 
-  run-group-3:
-    needs: wait-5-mins
-    uses: ./.github/workflows/group3.yml
+  run-s3:
+    needs: wait-for-s3
+    uses: ./.github/workflows/s3.yml
     secrets: inherit
 
-  # --- START AFTER 10 MINS ---
-  wait-10-mins:
+  # --- PHASE 3: WAIT 10 MINS TOTAL THEN RUN S4 ---
+  wait-for-s4:
     runs-on: ubuntu-latest
     steps:
-      - name: ⏳ Sleeping
+      - name: ⏳ Waiting 10 minutes
         run: sleep 600
 
-  run-group-4:
-    needs: wait-10-mins
-    uses: ./.github/workflows/group4.yml
+  run-s4:
+    needs: wait-for-s4
+    uses: ./.github/workflows/s4.yml
     secrets: inherit
