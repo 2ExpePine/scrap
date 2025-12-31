@@ -1,121 +1,129 @@
-import os
-import time
-import json
-import gspread
-from datetime import date
-from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import NoSuchElementException
+from bs4 import BeautifulSoup
+import gspread
+from datetime import date
+import os
+import time
+import json
 from webdriver_manager.chrome import ChromeDriverManager
 
-# ---------------- CONFIGURATION (MATCHING YOUR 4 YAMLs) ---------------- #
+# ---------------- SHARDING ---------------- #
 SHARD_INDEX = int(os.getenv("SHARD_INDEX", "0"))
-SHARD_STEP = int(os.getenv("SHARD_STEP", "20")) 
-START_INDEX = int(os.getenv("START_INDEX", "0")) 
-END_INDEX = int(os.getenv("END_INDEX", "2500"))
-checkpoint_file = os.getenv("CHECKPOINT_FILE", f"checkpoint_shard_{SHARD_INDEX}.txt")
+SHARD_STEP = int(os.getenv("SHARD_STEP", "1"))
+checkpoint_file = os.getenv("CHECKPOINT_FILE", f"checkpoint_{SHARD_INDEX}.txt")
+last_i = int(open(checkpoint_file).read()) if os.path.exists(checkpoint_file) else 1
 
-def get_driver():
-    chrome_options = Options()
-    chrome_options.add_argument("--headless=new")
-    chrome_options.add_argument("--disable-gpu")
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
-    driver.set_window_size(1920, 1080)
-    return driver
+# ---------------- CHROME SETUP ---------------- #
+chrome_options = Options()
+chrome_options.add_argument("--headless=new")
+chrome_options.add_argument("--disable-gpu")
+chrome_options.add_argument("--no-sandbox")
+chrome_options.add_argument("--disable-dev-shm-usage")
+chrome_options.add_argument("--remote-debugging-port=9222")
 
-# ---------------- GOOGLE SHEETS SETUP ---------------- #
-gc = gspread.service_account("credentials.json")
+# ---------------- GOOGLE SHEETS AUTH ---------------- #
+try:
+    gc = gspread.service_account("credentials.json")
+except Exception as e:
+    print(f"Error loading credentials.json: {e}")
+    exit(1)
+
+sheet_main = gc.open('Stock List').worksheet('Sheet1')
 sheet_data = gc.open('Tradingview Data Reel Experimental May').worksheet('Sheet5')
-list_sheet = gc.open('Stock List').worksheet('Sheet1')
-all_rows = list_sheet.get_all_values()[1:] 
 
-name_list = [row[0] for row in all_rows]
-company_list = [row[4] for row in all_rows]
+# Batch read once
+company_list = sheet_main.col_values(5)
+name_list = sheet_main.col_values(1)
 current_date = date.today().strftime("%m/%d/%Y")
 
-# ---------------- YOUR EXACT EXTRACTION LOGIC ---------------- #
-def scrape_tradingview(driver, url):
+# ---------------- SCRAPER ---------------- #
+def scrape_tradingview(driver, company_url):
     try:
-        driver.get(url)
-        
-        # Load cookies ONLY if we are on the TradingView domain
-        if os.path.exists("cookies.json"):
-            with open("cookies.json", "r") as f:
-                cookies = json.load(f)
-            for cookie in cookies:
-                try:
-                    driver.add_cookie({k: v for k, v in cookie.items() if k in ['name', 'value', 'domain', 'path']})
-                except: pass
-        
-        # We wait for the specific class you used in your old code
-        # This ensures we are scraping the exact same data points
-        wait = WebDriverWait(driver, 30)
-        wait.until(EC.visibility_of_element_located((By.CLASS_NAME, "valueValue-l31H9iuA")))
-        
+        driver.get(company_url)
+        WebDriverWait(driver, 45).until(
+            EC.visibility_of_element_located((By.XPATH,
+                '/html/body/div[2]/div/div[5]/div/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div'))
+        )
         soup = BeautifulSoup(driver.page_source, "html.parser")
-        
-        # EXACT SAME LOGIC AS YOUR ORIGINAL CODE
         values = [
-            el.get_text().replace('−', '-').replace('∅', '').strip()
+            el.get_text().replace('−', '-').replace('∅', 'None')
             for el in soup.find_all("div", class_="valueValue-l31H9iuA apply-common-tooltip")
         ]
         return values
+    except NoSuchElementException:
+        return []
     except Exception as e:
-        print(f"      ⚠️ Error: {e}")
+        print(f"Error scraping {company_url}: {e}")
         return []
 
-# ---------------- MAIN EXECUTION ---------------- #
-if os.path.exists(checkpoint_file):
-    with open(checkpoint_file, "r") as f:
-        last_i = int(f.read().strip())
+# ---------------- MAIN LOOP ---------------- #
+driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+
+# Load cookies (once per shard)
+if os.path.exists("cookies.json"):
+    driver.get("https://www.tradingview.com/")
+    with open("cookies.json", "r", encoding="utf-8") as f:
+        cookies = json.load(f)
+    for cookie in cookies:
+        try:
+            cookie_to_add = {k: cookie[k] for k in ('name', 'value', 'domain', 'path') if k in cookie}
+            cookie_to_add['secure'] = cookie.get('secure', False)
+            cookie_to_add['httpOnly'] = cookie.get('httpOnly', False)
+            driver.add_cookie(cookie_to_add)
+        except Exception:
+            pass
+    driver.refresh()
+    time.sleep(2)
 else:
-    last_i = START_INDEX
+    print("⚠️ cookies.json not found, scraping without login")
 
-driver = get_driver()
-session_count = 0
+buffer = []
+BATCH_SIZE = 50
 
-try:
-    for i in range(len(company_list)):
-        if i < last_i or i > END_INDEX: continue
-        if i % SHARD_STEP != SHARD_INDEX: continue
+for i, company_url in enumerate(company_list[last_i:], last_i):
+    if i % SHARD_STEP != SHARD_INDEX:
+        continue
+    if i > 2500:
+        print("Reached scraping limit.")
+        break
 
-        # REFRESH BROWSER EVERY 25 ROWS
-        # This solves the "Missing Rows" issue caused by memory crashes
-        session_count += 1
-        if session_count % 25 == 0:
-            driver.quit()
-            driver = get_driver()
+    name = name_list[i] if i < len(name_list) else f"Row {i}"
+    print(f"Scraping {i}: {name}")
 
-        url = company_list[i]
-        name = name_list[i]
-        if not url.startswith("http"): continue
+    values = scrape_tradingview(driver, company_url)
+    if values:
+        buffer.append([name, current_date] + values)
+    else:
+        print(f"Skipping {name}: no data")
 
-        print(f"🚀 [Shard {SHARD_INDEX}] Row {i+2}: {name}")
-        
-        scraped_values = scrape_tradingview(driver, url)
-        
-        if scraped_values:
-            target_row = i + 2
-            row_to_upload = [name, current_date] + scraped_values
-            
-            # Update specific row with retry logic for API limits
-            for attempt in range(3):
-                try:
-                    sheet_data.update(range_name=f"A{target_row}", values=[row_to_upload])
-                    break
-                except:
-                    time.sleep(5)
-        
-        with open(checkpoint_file, "w") as f:
-            f.write(str(i + 1))
-        
-        time.sleep(1) 
+    # Write checkpoint
+    with open(checkpoint_file, "w") as f:
+        f.write(str(i))
 
-finally:
-    driver.quit()
+    # Write every 50 rows
+    if len(buffer) >= BATCH_SIZE:
+        try:
+            sheet_data.append_rows(buffer, table_range='A1')
+            print(f"✅ Wrote batch of {len(buffer)} rows.")
+            buffer.clear()
+        except Exception as e:
+            print(f"⚠️ Batch write failed: {e}")
+
+    time.sleep(1)
+
+# Final flush
+if buffer:
+    try:
+        sheet_data.append_rows(buffer, table_range='A1')
+        print(f"✅ Final batch of {len(buffer)} rows written.")
+    except Exception as e:
+        print(f"⚠️ Final write failed: {e}")
+
+driver.quit()
+print("All done ✅")
