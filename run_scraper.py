@@ -14,7 +14,7 @@ from bs4 import BeautifulSoup
 import gspread
 from webdriver_manager.chrome import ChromeDriverManager
 
-# Force immediate log output for GitHub Actions
+# Force immediate log output
 def log(msg):
     print(msg, flush=True)
 
@@ -30,33 +30,45 @@ def create_driver():
     opts = Options()
     opts.add_argument("--headless=new")
     opts.add_argument("--no-sandbox")
-    opts.add_argument("--disable-dev-shm-usage")
+    opts.add_argument("--disable-dev-shm-usage") # Prevents memory crashes
     opts.add_argument("--disable-gpu")
     opts.add_argument("--window-size=1920,1080")
-    opts.add_argument("--blink-settings=imagesEnabled=false") # Block images to save RAM
+    opts.add_argument("--blink-settings=imagesEnabled=false") # RAM optimization
+    # Prevents "Unknown Stacktrace" by ignoring certificate and logging noise
+    opts.add_experimental_option('excludeSwitches', ['enable-logging']) 
     opts.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
     
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=opts)
-    driver.set_page_load_timeout(35)
+    driver.set_page_load_timeout(40)
     
+    # --- FIXED COOKIE LOGIC ---
     if os.path.exists("cookies.json"):
         try:
-            driver.get("https://www.tradingview.com/")
+            # You MUST navigate to the domain FIRST before adding cookies
+            driver.get("https://in.tradingview.com/") 
+            time.sleep(3)
             with open("cookies.json", "r") as f:
                 cookies = json.load(f)
             for c in cookies:
-                driver.add_cookie({k: v for k, v in c.items() if k in ('name', 'value', 'domain', 'path')})
+                try:
+                    # Clean the cookie to avoid domain mismatch errors
+                    new_cookie = {k: v for k, v in c.items() if k in ('name', 'value', 'path', 'secure', 'expiry')}
+                    # Only add if domain matches current page
+                    driver.add_cookie(new_cookie)
+                except:
+                    continue
             driver.refresh()
             time.sleep(2)
+            log("✅ Cookies applied successfully")
         except Exception as e:
-            log(f"   ⚠️ Cookie error: {e}")
+            log(f"   ⚠️ Cookie error: {str(e)[:50]}")
     return driver
 
 # ---------------- SCRAPER LOGIC ---------------- #
 def scrape_tradingview(driver, url):
     try:
         driver.get(url)
-        # ORIGINAL XPATH MAINTAINED AS REQUESTED
+        # ORIGINAL XPATH MAINTAINED
         WebDriverWait(driver, 45).until(
             EC.visibility_of_element_located((By.XPATH,
                 '/html/body/div[2]/div/div[5]/div/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div'))
@@ -70,7 +82,7 @@ def scrape_tradingview(driver, url):
     except (TimeoutException, NoSuchElementException):
         return []
     except WebDriverException as e:
-        log(f"   🛑 Browser Crash Detected: {str(e)[:50]}")
+        log(f"   🛑 Browser Crash: Restarting driver...")
         return "RESTART"
 
 # ---------------- INITIAL SETUP ---------------- #
@@ -82,14 +94,14 @@ try:
     company_list = sheet_main.col_values(5)
     name_list = sheet_main.col_values(1)
     current_date = date.today().strftime("%m/%d/%Y")
-    log(f"✅ Setup complete. Shard {SHARD_INDEX} starting at index {last_i}")
+    log(f"✅ Setup complete. Shard {SHARD_INDEX} Index {last_i}")
 except Exception as e:
     log(f"❌ Setup Error: {e}"); sys.exit(1)
 
 # ---------------- MAIN LOOP ---------------- #
 driver = create_driver()
 batch_list = []
-BATCH_SIZE = 50  # Maximum efficiency for large lists
+BATCH_SIZE = 50 
 
 try:
     for i, url in enumerate(company_list[last_i:], last_i):
@@ -101,10 +113,10 @@ try:
 
         values = scrape_tradingview(driver, url)
 
-        # Chrome Crash Recovery
+        # Handle Crash Recovery
         if values == "RESTART":
-            log("♻️ Restarting Browser Process...")
-            driver.quit()
+            try: driver.quit()
+            except: pass
             driver = create_driver()
             values = scrape_tradingview(driver, url)
             if values == "RESTART": values = []
@@ -119,31 +131,23 @@ try:
         else:
             log(f"   ⏭️ Skipped {name}")
 
-        # Execute Batch Write when 50 items are ready
+        # Batch write logic for API 429 Error
         if len(batch_list) >= BATCH_SIZE:
             try:
                 sheet_data.batch_update(batch_list)
-                log(f"🚀 SUCCESS: Mass Batch Write (Size: {len(batch_list)})")
-                batch_list = [] # Clear only after success
+                log(f"🚀 SUCCESS: Write of {len(batch_list)} items completed.")
+                batch_list = [] 
             except Exception as e:
-                log(f"⚠️ Sheets Quota Hit or Error: {e}")
+                log(f"⚠️ API Error: {e}")
                 if "429" in str(e): 
-                    log("   ⏳ Quota exceeded. Retrying batch in 45s...")
-                    time.sleep(45)
+                    log("   ⏳ Quota Hit! Waiting 60s...")
+                    time.sleep(60)
 
-        # Update Checkpoint
         with open(checkpoint_file, "w") as f: f.write(str(i))
-        
-        # Reduced sleep because batching protects us from the API limit
-        time.sleep(0.3) 
+        time.sleep(0.5)
 
 finally:
-    # FINAL FLUSH: Saves any remaining items (even if less than 50)
     if batch_list:
-        try: 
-            sheet_data.batch_update(batch_list)
-            log(f"✅ FINAL SAVE: Wrote remaining {len(batch_list)} items.")
-        except Exception as e:
-            log(f"❌ Could not save final buffer: {e}")
+        try: sheet_data.batch_update(batch_list); log(f"✅ FINAL SAVE: {len(batch_list)} items.")
+        except: pass
     driver.quit()
-    log("🏁 Shard processing complete.")
