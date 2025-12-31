@@ -4,7 +4,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import NoSuchElementException
+from selenium.common.exceptions import NoSuchElementException, TimeoutException # Added TimeoutException
 from bs4 import BeautifulSoup
 import gspread
 from datetime import date
@@ -46,16 +46,22 @@ current_date = date.today().strftime("%m/%d/%Y")
 def scrape_tradingview(driver, company_url):
     try:
         driver.get(company_url)
-        WebDriverWait(driver, 45).until(
-            EC.visibility_of_element_located((By.XPATH,
-                '/html/body/div[2]/div/div[5]/div/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div'))
+        # We wait for the specific class that contains the data values.
+        # This is more robust than the long absolute XPATH.
+        WebDriverWait(driver, 30).until(
+            EC.visibility_of_element_located((By.CLASS_NAME, "valueValue-l31H9iuA"))
         )
+        
         soup = BeautifulSoup(driver.page_source, "html.parser")
+        # Finds all technical indicator values
         values = [
             el.get_text().replace('−', '-').replace('∅', 'None')
             for el in soup.find_all("div", class_="valueValue-l31H9iuA apply-common-tooltip")
         ]
         return values
+    except TimeoutException:
+        print(f"⏰ Timeout: Page took too long to load for {company_url}")
+        return []
     except NoSuchElementException:
         return []
     except Exception as e:
@@ -83,6 +89,10 @@ if os.path.exists("cookies.json"):
 else:
     print("⚠️ cookies.json not found, scraping without login")
 
+# --- BATCH CONFIGURATION ---
+batch_list = []
+BATCH_SIZE = 10 
+
 # Process loop
 for i, company_url in enumerate(company_list[last_i:], last_i):
     if i % SHARD_STEP != SHARD_INDEX:
@@ -98,25 +108,43 @@ for i, company_url in enumerate(company_list[last_i:], last_i):
     
     if values:
         row_data = [name, current_date] + values
-        # We calculate the row based on the index 'i'. 
-        # If your Sheet5 has a header row, use (i + 1). 
-        # If your company_list index starts at 0 for the first stock, use (i + 1).
         target_row = i + 1 
         
-        try:
-            # We use update instead of append to force the specific row position
-            sheet_data.update(range_name=f'A{target_row}', values=[row_data])
-            print(f"✅ Wrote {name} to row {target_row}")
-        except Exception as e:
-            print(f"⚠️ Write failed for {name} at row {target_row}: {e}")
+        # Add to the batch buffer
+        batch_list.append({
+            'range': f'A{target_row}',
+            'values': [row_data]
+        })
+        print(f"📦 Buffered {name} for row {target_row}")
     else:
-        print(f"Skipping {name}: no data")
+        print(f"Skipping {name}: no data or timeout")
+
+    # If buffer reaches BATCH_SIZE, write to Google Sheets
+    if len(batch_list) >= BATCH_SIZE:
+        try:
+            sheet_data.batch_update(batch_list)
+            print(f"🚀 Successfully batch-wrote {len(batch_list)} items to Sheets.")
+            batch_list = []  # Reset buffer
+        except Exception as e:
+            print(f"⚠️ Batch write failed: {e}")
+            if "429" in str(e):
+                print("Rate limit hit, sleeping for 15 seconds...")
+                time.sleep(15)
 
     # Write checkpoint
     with open(checkpoint_file, "w") as f:
         f.write(str(i))
 
+    # Small delay to be polite to the server
     time.sleep(1)
+
+# --- FINAL BATCH WRITE ---
+if batch_list:
+    try:
+        sheet_data.batch_update(batch_list)
+        print(f"✅ Final batch write of {len(batch_list)} items completed.")
+    except Exception as e:
+        print(f"⚠️ Final batch write failed: {e}")
 
 driver.quit()
 print("All done ✅")
