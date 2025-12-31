@@ -1,7 +1,7 @@
-name: TradingView Scraper Group 3 (Shards 10–14)
+name: T3 (Shards 10–14)
+
 on:
   workflow_dispatch:
-  workflow_call:
 
 jobs:
   scrape:
@@ -9,26 +9,30 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [10, 11, 12, 13, 14]
+        shard: [10,11,12,13,14]
     env:
       SHARD_STEP: 20
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
+
       - run: |
-          sudo apt-get update
-          sudo apt-get install -y google-chrome-stable
-          pip install selenium beautifulsoup4 gspread webdriver-manager pandas requests openpyxl
-      - name: 🔑 Set up Credentials
-        run: |
-          echo '${{ secrets.GSPREAD_CREDENTIALS }}' > credentials.json
-          echo '${{ secrets.TRADINGVIEW_COOKIES }}' > cookies.json
-      - name: ⚙️ Create Checkpoint
+          pip install selenium beautifulsoup4 gspread webdriver-manager
+
+      - name: 🔑 Set up Google Credentials
+        run: echo '${{ secrets.GSPREAD_CREDENTIALS }}' > credentials.json
+
+      - name: 🍪 Set up TradingView Cookies
+        run: echo '${{ secrets.TRADINGVIEW_COOKIES }}' > cookies.json
+
+      - name: ⚙️ Create Checkpoint File
         run: |
           FILE="checkpoint_group3_${{ matrix.shard }}.txt"
-          if [ ! -f "$FILE" ]; then echo "0" > "$FILE"; fi
+          if [ ! -f "$FILE" ]; then echo "1" > "$FILE"; fi
+
       - name: 🚀 Run Scraper
         env:
           SHARD_INDEX: ${{ matrix.shard }}
