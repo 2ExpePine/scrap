@@ -65,7 +65,7 @@ def scrape_tradingview(driver, company_url):
 # ---------------- MAIN LOOP ---------------- #
 driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
 
-# Load cookies
+# Load cookies (once per shard)
 if os.path.exists("cookies.json"):
     driver.get("https://www.tradingview.com/")
     with open("cookies.json", "r", encoding="utf-8") as f:
@@ -83,7 +83,9 @@ if os.path.exists("cookies.json"):
 else:
     print("⚠️ cookies.json not found, scraping without login")
 
-# Process loop
+buffer = []
+BATCH_SIZE = 50
+
 for i, company_url in enumerate(company_list[last_i:], last_i):
     if i % SHARD_STEP != SHARD_INDEX:
         continue
@@ -95,20 +97,8 @@ for i, company_url in enumerate(company_list[last_i:], last_i):
     print(f"Scraping {i}: {name}")
 
     values = scrape_tradingview(driver, company_url)
-    
     if values:
-        row_data = [name, current_date] + values
-        # We calculate the row based on the index 'i'. 
-        # If your Sheet5 has a header row, use (i + 1). 
-        # If your company_list index starts at 0 for the first stock, use (i + 1).
-        target_row = i + 1 
-        
-        try:
-            # We use update instead of append to force the specific row position
-            sheet_data.update(range_name=f'A{target_row}', values=[row_data])
-            print(f"✅ Wrote {name} to row {target_row}")
-        except Exception as e:
-            print(f"⚠️ Write failed for {name} at row {target_row}: {e}")
+        buffer.append([name, current_date] + values)
     else:
         print(f"Skipping {name}: no data")
 
@@ -116,7 +106,24 @@ for i, company_url in enumerate(company_list[last_i:], last_i):
     with open(checkpoint_file, "w") as f:
         f.write(str(i))
 
+    # Write every 50 rows
+    if len(buffer) >= BATCH_SIZE:
+        try:
+            sheet_data.append_rows(buffer, table_range='A1')
+            print(f"✅ Wrote batch of {len(buffer)} rows.")
+            buffer.clear()
+        except Exception as e:
+            print(f"⚠️ Batch write failed: {e}")
+
     time.sleep(1)
+
+# Final flush
+if buffer:
+    try:
+        sheet_data.append_rows(buffer, table_range='A1')
+        print(f"✅ Final batch of {len(buffer)} rows written.")
+    except Exception as e:
+        print(f"⚠️ Final write failed: {e}")
 
 driver.quit()
 print("All done ✅")
