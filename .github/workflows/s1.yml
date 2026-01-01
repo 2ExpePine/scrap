@@ -5,13 +5,17 @@ on:
 
 jobs:
   scrape:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04   # more stable than ubuntu-latest
+
     strategy:
       fail-fast: false
+      max-parallel: 2       # 🔴 KEY FIX (reduce runner pressure)
       matrix:
         shard: [0,1,2,3,4]
+
     env:
-      SHARD_STEP: 20   # total shards across all 4 YAMLs
+      SHARD_STEP: 20   # total shards across all YAMLs
+
     steps:
       - name: ⬇️ Checkout Repository
         uses: actions/checkout@v4
@@ -26,10 +30,12 @@ jobs:
           pip install selenium beautifulsoup4 gspread webdriver-manager
 
       - name: 🔑 Set up Google Credentials
-        run: echo '${{ secrets.GSPREAD_CREDENTIALS }}' > credentials.json
+        run: |
+          echo '${{ secrets.GSPREAD_CREDENTIALS }}' > credentials.json
 
       - name: 🍪 Set up TradingView Cookies
-        run: echo '${{ secrets.TRADINGVIEW_COOKIES }}' > cookies.json
+        run: |
+          echo '${{ secrets.TRADINGVIEW_COOKIES }}' > cookies.json
 
       - name: ⚙️ Create Checkpoint File
         run: |
