@@ -1,92 +1,48 @@
-name: 🔄 Master Timed Scraper Batch 
+name: 🔄 Master Timed Scraper Batch
 
 on:
   workflow_dispatch:
-    inputs:
-      reason:
-        description: 'Reason for dispatching the orchestrator'
-        required: false
-        default: 'Timed sequential run'
 
-# Permissions are essential for dispatching other workflows
 permissions:
-  actions: write 
+  actions: write
   contents: read
 
 jobs:
-  trigger_workflows:
-    runs-on: ubuntu-latest
+  orchestrator:
+    runs-on: [self-hosted, linux, x64]
+
     steps:
-      - name: ⬇️ Checkout Repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      # -----------------------------------------------------------------
-      # --- STEP 1: Simultaneously Trigger Batch 1 and Batch 2 ---
-      - name: 🚀 Trigger Batch 1 and Batch 2 (Concurrent Group 1)
+      - name: Trigger Batch 1 & 2
         uses: actions/github-script@v6
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const dispatch = async (workflowFile) => {
-              console.log(`Dispatching workflow: ${workflowFile}`);
-              await github.rest.actions.createWorkflowDispatch({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                workflow_id: workflowFile,
-                ref: context.ref,
-                inputs: {} 
-              });
-              console.log(`Successfully dispatched ${workflowFile}`);
-            };
+            const run = (f) => github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: f,
+              ref: context.ref
+            });
+            run('s1.yml');
+            run('s2.yml');
 
-            // Trigger scraper_batch1.yml simultaneously
-            dispatch('s1.yml'); 
-            
-            // Trigger scraper_batch2.yml simultaneously
-            dispatch('s2.yml'); 
-            // Note: The lack of 'await' between dispatches makes them run concurrently.
+      - name: Wait 12 minutes
+        run: sleep 720
 
-
-      # -----------------------------------------------------------------
-      # --- STEP 2: Wait 12 Minutes ---
-      - name: ⏳ Wait for 12 minutes (Before Group 2)
-        uses: actions/github-script@v6
-        with:
-          script: |
-            // Delay for 12 minutes (12 * 60 * 1000 milliseconds)
-            const delay = 12 * 60 * 1000; 
-            console.log(`Waiting for ${delay / 1000 / 60} minutes...`);
-            await new Promise(resolve => setTimeout(resolve, delay));
-            console.log('Wait complete, proceeding to Batch 3 and 4.');
-
-
-      # -----------------------------------------------------------------
-      # --- STEP 3: Simultaneously Trigger Batch 3 and Batch 4 ---
-      - name: 🚀 Trigger Batch 3 and Batch 4 (Concurrent Group 2)
+      - name: Trigger Batch 3 & 4
         uses: actions/github-script@v6
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const dispatch = async (workflowFile) => {
-              console.log(`Dispatching workflow: ${workflowFile}`);
-              await github.rest.actions.createWorkflowDispatch({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                workflow_id: workflowFile,
-                ref: context.ref,
-                inputs: {}
-              });
-              console.log(`Successfully dispatched ${workflowFile}`);
-            };
+            const run = (f) => github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: f,
+              ref: context.ref
+            });
+            run('s3.yml');
+            run('s4.yml');
 
-            // Trigger scraper_batch3.yml simultaneously
-            dispatch('s3.yml'); 
-            
-            // Trigger scraper_batch4.yml simultaneously
-            dispatch('s4.yml'); 
-
-
-      # -----------------------------------------------------------------
-      # --- STEP 4: Optional cleanup step or simple completion log ---
-      - name: ✅ Orchestration Complete
-        run: echo "All scraper batches have been dispatched."
+      - run: echo "✅ All batches dispatched"
