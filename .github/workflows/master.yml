@@ -9,40 +9,52 @@ permissions:
 
 jobs:
   orchestrator:
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-22.04   # IMPORTANT: GitHub-hosted
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Trigger Batch 1 & 2
+      # -----------------------------
+      # Trigger Batch 1 & 2 together
+      - name: 🚀 Trigger T1 & T2
         uses: actions/github-script@v6
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const run = (f) => github.rest.actions.createWorkflowDispatch({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              workflow_id: f,
-              ref: context.ref
-            });
+            const run = (file) =>
+              github.rest.actions.createWorkflowDispatch({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: file,
+                ref: context.ref
+              });
+
             run('s1.yml');
             run('s2.yml');
 
-      - name: Wait 12 minutes
+      # -----------------------------
+      # Wait 12 minutes
+      - name: ⏳ Wait 12 minutes
         run: sleep 720
 
-      - name: Trigger Batch 3 & 4
+      # -----------------------------
+      # Trigger Batch 3 & 4 together
+      - name: 🚀 Trigger T3 & T4
         uses: actions/github-script@v6
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const run = (f) => github.rest.actions.createWorkflowDispatch({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              workflow_id: f,
-              ref: context.ref
-            });
+            const run = (file) =>
+              github.rest.actions.createWorkflowDispatch({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: file,
+                ref: context.ref
+              });
+
             run('s3.yml');
             run('s4.yml');
 
-      - run: echo "✅ All batches dispatched"
+      # -----------------------------
+      - name: ✅ Done
+        run: echo "All shard workflows dispatched successfully"
