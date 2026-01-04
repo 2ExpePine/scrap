@@ -5,44 +5,39 @@ on:
 
 jobs:
   scrape:
-    runs-on: ubuntu-22.04   # more stable than ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
 
     strategy:
       fail-fast: false
-      max-parallel: 2       # 🔴 KEY FIX (reduce runner pressure)
+      max-parallel: 2
       matrix:
         shard: [0,1,2,3,4]
 
     env:
-      SHARD_STEP: 20   # total shards across all YAMLs
+      SHARD_STEP: 20
 
     steps:
-      - name: ⬇️ Checkout Repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: 🐍 Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: 📦 Install dependencies
-        run: |
-          pip install selenium beautifulsoup4 gspread webdriver-manager
+      - name: Install dependencies
+        run: pip install selenium beautifulsoup4 gspread webdriver-manager
 
-      - name: 🔑 Set up Google Credentials
-        run: |
-          echo '${{ secrets.GSPREAD_CREDENTIALS }}' > credentials.json
+      - name: Google credentials
+        run: echo '${{ secrets.GSPREAD_CREDENTIALS }}' > credentials.json
 
-      - name: 🍪 Set up TradingView Cookies
-        run: |
-          echo '${{ secrets.TRADINGVIEW_COOKIES }}' > cookies.json
+      - name: TradingView cookies
+        run: echo '${{ secrets.TRADINGVIEW_COOKIES }}' > cookies.json
 
-      - name: ⚙️ Create Checkpoint File
+      - name: Create checkpoint
         run: |
           FILE="checkpoint_group1_${{ matrix.shard }}.txt"
-          if [ ! -f "$FILE" ]; then echo "1" > "$FILE"; fi
+          [ ! -f "$FILE" ] && echo "1" > "$FILE"
 
-      - name: 🚀 Run Scraper
+      - name: Run scraper
         env:
           SHARD_INDEX: ${{ matrix.shard }}
           CHECKPOINT_FILE: checkpoint_group1_${{ matrix.shard }}.txt
