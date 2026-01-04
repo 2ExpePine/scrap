@@ -1,4 +1,4 @@
-name: 🔄 Master Timed Scraper Batch
+name: 🔄 Master Batch (T1 + T2)
 
 on:
   workflow_dispatch:
@@ -9,13 +9,11 @@ permissions:
 
 jobs:
   orchestrator:
-    runs-on: ubuntu-22.04   # IMPORTANT: GitHub-hosted
+    runs-on: ubuntu-22.04
 
     steps:
       - uses: actions/checkout@v4
 
-      # -----------------------------
-      # Trigger Batch 1 & 2 together
       - name: 🚀 Trigger T1 & T2
         uses: actions/github-script@v6
         with:
@@ -32,29 +30,5 @@ jobs:
             run('s1.yml');
             run('s2.yml');
 
-      # -----------------------------
-      # Wait 12 minutes
-      - name: ⏳ Wait 12 minutes
-        run: sleep 720
-
-      # -----------------------------
-      # Trigger Batch 3 & 4 together
-      - name: 🚀 Trigger T3 & T4
-        uses: actions/github-script@v6
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const run = (file) =>
-              github.rest.actions.createWorkflowDispatch({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                workflow_id: file,
-                ref: context.ref
-              });
-
-            run('s3.yml');
-            run('s4.yml');
-
-      # -----------------------------
       - name: ✅ Done
-        run: echo "All shard workflows dispatched successfully"
+        run: echo "T1 and T2 triggered"
