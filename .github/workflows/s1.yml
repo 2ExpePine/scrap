@@ -5,7 +5,7 @@ on:
 
 jobs:
   scrape:
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-22.04
 
     strategy:
       fail-fast: false
@@ -23,21 +23,17 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install dependencies
-        run: pip install selenium beautifulsoup4 gspread webdriver-manager
+      - run: pip install selenium beautifulsoup4 gspread webdriver-manager
 
-      - name: Google credentials
-        run: echo '${{ secrets.GSPREAD_CREDENTIALS }}' > credentials.json
+      - run: echo '${{ secrets.GSPREAD_CREDENTIALS }}' > credentials.json
+      - run: echo '${{ secrets.TRADINGVIEW_COOKIES }}' > cookies.json
 
-      - name: TradingView cookies
-        run: echo '${{ secrets.TRADINGVIEW_COOKIES }}' > cookies.json
-
-      - name: Create checkpoint
+      - name: Create Checkpoint
         run: |
           FILE="checkpoint_group1_${{ matrix.shard }}.txt"
           [ ! -f "$FILE" ] && echo "1" > "$FILE"
 
-      - name: Run scraper
+      - name: Run Scraper
         env:
           SHARD_INDEX: ${{ matrix.shard }}
           CHECKPOINT_FILE: checkpoint_group1_${{ matrix.shard }}.txt
