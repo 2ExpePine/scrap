@@ -35,7 +35,7 @@ def create_driver():
     opts.add_argument("--disable-gpu")
     opts.add_argument("--window-size=1920,1080")
     opts.add_argument("--blink-settings=imagesEnabled=false")
-    opts.add_experimental_option('excludeSwitches', ['enable-logging'])
+    opts.add_experimental_option("excludeSwitches", ["enable-logging"])
     opts.add_argument(
         "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -72,22 +72,21 @@ def create_driver():
     return driver
 
 # ---------------- SCRAPER LOGIC ---------------- #
+TV_WAIT_XPATH = '/html/body/div[2]/div/div[5]/div/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div'
+
 def scrape_tradingview(driver, url):
+    if not url or not str(url).strip():
+        return []
+
     try:
         driver.get(url)
         WebDriverWait(driver, 45).until(
-            EC.visibility_of_element_located((
-                By.XPATH,
-                '/html/body/div[2]/div/div[5]/div/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div'
-            ))
+            EC.visibility_of_element_located((By.XPATH, TV_WAIT_XPATH))
         )
         soup = BeautifulSoup(driver.page_source, "html.parser")
         values = [
-            el.get_text().replace('−', '-').replace('∅', 'None')
-            for el in soup.find_all(
-                "div",
-                class_="valueValue-l31H9iuA apply-common-tooltip"
-            )
+            el.get_text().replace("−", "-").replace("∅", "None")
+            for el in soup.find_all("div", class_="valueValue-l31H9iuA apply-common-tooltip")
         ]
         return values
     except (TimeoutException, NoSuchElementException):
@@ -96,6 +95,22 @@ def scrape_tradingview(driver, url):
         log("🛑 Browser Crash Detected")
         return "RESTART"
 
+def scrape_with_restart(driver, url):
+    values = scrape_tradingview(driver, url)
+    if values != "RESTART":
+        return driver, values
+
+    # restart once
+    try:
+        driver.quit()
+    except:
+        pass
+    driver = create_driver()
+    values = scrape_tradingview(driver, url)
+    if values == "RESTART":
+        values = []
+    return driver, values
+
 # ---------------- INITIAL SETUP ---------------- #
 log("📊 Connecting to Google Sheets...")
 try:
@@ -103,11 +118,17 @@ try:
     sheet_main = gc.open("Stock List").worksheet("Sheet1")
     sheet_data = gc.open("Tradingview Data Reel Experimental May").worksheet("Sheet5")
 
-    company_list = sheet_main.col_values(5)
+    # ✅ Names in column A
     name_list = sheet_main.col_values(1)
 
+    # ✅ Two URL columns
+    url_list_c = sheet_main.col_values(3)  # Column C
+    url_list_e = sheet_main.col_values(4)  # Column E
+
     current_date = date.today().strftime("%m/%d/%Y")
-    log(f"✅ Setup complete | Shard {SHARD_INDEX} | Resume index {last_i}")
+    max_len = max(len(name_list), len(url_list_c), len(url_list_e))
+
+    log(f"✅ Setup complete | Shard {SHARD_INDEX} | Resume index {last_i} | Total rows {max_len}")
 except Exception as e:
     log(f"❌ Setup Error: {e}")
     sys.exit(1)
@@ -118,39 +139,57 @@ batch_list = []
 BATCH_SIZE = 50
 
 try:
-    for i in range(last_i, len(company_list)):
+    for i in range(last_i, max_len):
         if i % SHARD_STEP != SHARD_INDEX:
             continue
         if i >= 2500:
             break
 
-        url = company_list[i]
-        name = name_list[i] if i < len(name_list) else f"Row {i}"
+        name = name_list[i] if i < len(name_list) and name_list[i].strip() else f"Row {i+1}"
+        url_c = url_list_c[i].strip() if i < len(url_list_c) and url_list_c[i] else ""
+        url_e = url_list_e[i].strip() if i < len(url_list_e) and url_list_e[i] else ""
+
+        if not url_c and not url_e:
+            log(f"⏭️ [{i}] Skipped {name} (no URL in C or E)")
+            with open(checkpoint_file, "w") as f:
+                f.write(str(i + 1))
+            continue
 
         log(f"🔍 [{i}] Scraping: {name}")
 
-        values = scrape_tradingview(driver, url)
+        # Scrape both URLs (if present)
+        values_c = []
+        values_e = []
 
-        if values == "RESTART":
-            try:
-                driver.quit()
-            except:
-                pass
-            driver = create_driver()
-            values = scrape_tradingview(driver, url)
-            if values == "RESTART":
-                values = []
+        if url_c:
+            log(f"   • URL(C): {url_c[:70]}")
+            driver, values_c = scrape_with_restart(driver, url_c)
 
-        if isinstance(values, list) and values:
-            target_row = i + 1
-            batch_list.append({
-                "range": f"A{target_row}",
-                "values": [[name, current_date] + values]
-            })
-            log(f"📦 Buffered ({len(batch_list)}/{BATCH_SIZE})")
-        else:
-            log(f"⏭️ Skipped {name}")
+        if url_e:
+            log(f"   • URL(E): {url_e[:70]}")
+            driver, values_e = scrape_with_restart(driver, url_e)
 
+        # ✅ Build ONE combined row
+        # Layout:
+        # A: Name
+        # B: Date
+        # C: URL(C)
+        # D.. : values from URL(C)
+        # then marker + URL(E) + values from URL(E)
+        combined_row = (
+            [name, current_date]
+            + ["URL_C", url_c] + values_c
+            + ["URL_E", url_e] + values_e
+        )
+
+        target_row = i + 1
+        batch_list.append({
+            "range": f"A{target_row}",
+            "values": [combined_row]
+        })
+        log(f"📦 Buffered ({len(batch_list)}/{BATCH_SIZE}) | C_vals={len(values_c)} | E_vals={len(values_e)}")
+
+        # Flush batch
         if len(batch_list) >= BATCH_SIZE:
             try:
                 sheet_data.batch_update(batch_list)
@@ -162,6 +201,7 @@ try:
                     log("⏳ Quota hit, sleeping 60s...")
                     time.sleep(60)
 
+        # Save checkpoint
         with open(checkpoint_file, "w") as f:
             f.write(str(i + 1))
 
@@ -172,7 +212,12 @@ finally:
         try:
             sheet_data.batch_update(batch_list)
             log(f"✅ Final save: {len(batch_list)} rows")
-        except:
-            pass
-    driver.quit()
+        except Exception as e:
+            log(f"⚠️ Final save failed: {e}")
+
+    try:
+        driver.quit()
+    except:
+        pass
+
     log("🏁 Scraping completed successfully")
